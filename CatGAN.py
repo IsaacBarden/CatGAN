@@ -5,7 +5,7 @@ import os
 import random
 import torch
 import torch.nn as nn
-import torch.backends.cudnn as cudnn #Remove if on cpu-only installation
+#import torch.backends.cudnn as cudnn #Remove if on cpu-only installation
 import torch.optim as optim
 import torch.utils.data 
 import torchvision.datasets as dset
@@ -15,7 +15,7 @@ import torchvision.utils as vutils
 SIZE_Z = 100
 G_FEATURE_SIZE = 64
 D_FEATURE_SIZE = 64
-IMAGE_SIZE = 64
+IMAGE_SIZE = 512
 
 device = "cpu"
 
@@ -29,9 +29,8 @@ def weights_init(m):
 
 
 class Generator(nn.Module):
-    def __init__(self, num_colors):
+    def __init__(self):
         super(Generator, self).__init__()
-        self.num_colors = num_colors
         self.main = nn.Sequential(
             #Z is latent vector of noise
             nn.ConvTranspose2d(            SIZE_Z, G_FEATURE_SIZE * 8, 4, 1, 0, bias=False),
@@ -42,17 +41,17 @@ class Generator(nn.Module):
             nn.BatchNorm2d(G_FEATURE_SIZE * 4),
             nn.ReLU(True),
             #size: 256 * 8 * 8
-            nn.ConvTranspose2d(G_FEATURE_SIZE * 4, G_FEATURE_SIZE * 2, 4, 2, 1, bias=False),
+            nn.ConvTranspose2d(G_FEATURE_SIZE * 4, G_FEATURE_SIZE * 2, 8, 4, 2, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE * 2),
             nn.ReLU(True),
-            #size: 128 * 16 * 16
-            nn.ConvTranspose2d(G_FEATURE_SIZE * 2,     G_FEATURE_SIZE, 4, 2, 1, bias=False),
+            #size: 128 * 32 * 32
+            nn.ConvTranspose2d(G_FEATURE_SIZE * 2,     G_FEATURE_SIZE, 8, 4, 2, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE),
             nn.ReLU(True),
-            #size: 64 * 32 * 32
-            nn.ConvTranspose2d(    G_FEATURE_SIZE,         num_colors, 4, 2, 1, bias=False),
+            #size: 64 * 128 * 128
+            nn.ConvTranspose2d(    G_FEATURE_SIZE,                  3, 8, 4, 2, bias=False),
             nn.Tanh()
-            #size: num_colors x 64 x 64
+            #size: num_colors x 512 x 512
         )
 
     def forward(self, input):
@@ -60,19 +59,18 @@ class Generator(nn.Module):
         return output
 
 class Discriminator(nn.Module):
-    def __init__(self, num_colors):
+    def __init__(self):
         super(Discriminator, self).__init__()
-        self.num_colors = num_colors
         self.main = nn.Sequential(
-            #input is num_colors x 64 x 64
-            nn.Conv2d(    num_colors,       D_FEATURE_SIZE, 4, 2, 1, bias=False),
+            #input is 3 x 512 x 512
+            nn.Conv2d(                3,      D_FEATURE_SIZE, 8, 4, 2, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
-            #size: 64 x 32 x 32
-            nn.Conv2d(D_FEATURE_SIZE,   D_FEATURE_SIZE * 2, 4, 2, 1, bias=False),
+            #size: 64 x 128 x 128
+            nn.Conv2d(    D_FEATURE_SIZE, D_FEATURE_SIZE * 2, 8, 4, 2, bias=False),
             nn.BatchNorm2d(D_FEATURE_SIZE * 2),
             nn.LeakyReLU(0.2, inplace=True),
-            #size: 128 x 16 x 16
-            nn.Conv2d(D_FEATURE_SIZE * 2, D_FEATURE_SIZE * 4, 4, 2, 1, bias=False),
+            #size: 128 x 32 x 32
+            nn.Conv2d(D_FEATURE_SIZE * 2, D_FEATURE_SIZE * 4, 8, 4, 2, bias=False),
             nn.BatchNorm2d(D_FEATURE_SIZE * 4),
             nn.LeakyReLU(0.2, inplace=True),
             #size: 256 x 8 x 8
@@ -82,21 +80,20 @@ class Discriminator(nn.Module):
             #size: 512 x 4 x 4
             nn.Conv2d(D_FEATURE_SIZE * 8,                  1, 4, 1, 0, bias=False),
             nn.Sigmoid()
-            #size: 1 x 2 x 2
+            #size: 1
         )
 
     def forward(self, input):
         output = self.main(input)
         return output.view(-1, 1).squeeze(1)
 
-def run_nn(dataset, dataroot=None, workers=2, batch_size=64, niter=25, lr=0.0002, beta1=0.5, 
+def run_nn(workers=2, batch_size=64, niter=25, lr=0.0002, beta1=0.5, 
            cuda=True, 
            dry_run=False, 
            existing_G="", 
            existing_D="", 
-           outf=".", 
-           manualSeed=None, 
-           classes="bedroom"):
+           outf="./CatGAN/Output", 
+           manualSeed=None):
     try:
         os.makedirs(outf)
     except OSError:
@@ -115,64 +112,29 @@ def run_nn(dataset, dataroot=None, workers=2, batch_size=64, niter=25, lr=0.0002
 
     if torch.cuda.is_available() and not cuda:
         print("WARNING: You have a CUDA device, so you should probably run with cuda=True")
-        
-    if dataroot == None and str(dataset).lower() != "fake":
-        raise  ValueError(f"dataroot parameter is required for dataset {dataset}")
 
-    if dataset in ["imagenet", "folder", "lfw"]:
-        #folder dataset
-        dataset = dset.ImageFolder(root=dataroot,
-                                   transform=transforms.Compose([
-                                       transforms.Resize(IMAGE_SIZE),
-                                       transforms.CenterCrop(IMAGE_SIZE),
-                                       transforms.ToTensor(),
-                                       transforms.Normalize((0.5, 0.5 ,0.5), (0.5, 0.5, 0.5))
-                                   ]))
-        num_colors = 3
-    elif dataset == "lsun":
-        classes = [ c + '_train' for c in classes.split(',')]
-        dataset = dset.LSUN(root=dataroot, classes=classes,
-                           transform=transforms.Compose([
-                               transforms.Resize(IMAGE_SIZE),
-                               transforms.CenterCrop(IMAGE_SIZE),
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.5, 0.5 ,0.5), (0.5, 0.5, 0.5))
-                           ]))
-        num_colors = 3
-    elif dataset == "cifar10":
-        dataset = dset.CIFAR10(root=dataroot, download=True,
-                           transform=transforms.Compose([
-                               transforms.Resize(IMAGE_SIZE),
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.5, 0.5 ,0.5), (0.5, 0.5, 0.5))
-                           ]))
-        num_colors=3
-    elif dataset == "mnist":
-        dataset = dset.MNIST(root=dataroot, download=True,
-                           transform=transforms.Compose([
-                               transforms.Resize(IMAGE_SIZE),
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.5,), (0.5,))
-                           ]))
-        num_colors = 1
-    elif dataset == "fake":
-        dataset = dset.FakeData(image_size=(3, IMAGE_SIZE, IMAGE_SIZE),
-                                transform=transforms.ToTensor())
-        num_colors = 3
+    #folder dataset
+    dataset = dset.ImageFolder(root="./CatGAN/data",
+                               transform=transforms.Compose([
+                                   transforms.Resize(IMAGE_SIZE),
+                                   transforms.CenterCrop(IMAGE_SIZE),
+                                   transforms.ToTensor(),
+                                   transforms.Normalize((0.5, 0.5 ,0.5), (0.5, 0.5, 0.5))
+                               ]))
 
     assert dataset
     dataloader = torch.utils.data.DataLoader(dataset, batch_size, shuffle=True, num_workers=int(workers))
 
     device = torch.device("cuda:0" if cuda else "cpu")
 
-    netG = Generator(num_colors).to(device)
+    netG = Generator().to(device)
     netG.apply(weights_init)
     previous_epoch = 0
     if existing_G != "":
         netG.load_state_dict(torch.load(existing_G))
         previous_epoch = int(existing_G[-5])
 
-    netD = Discriminator(num_colors).to(device)
+    netD = Discriminator().to(device)
     netD.apply(weights_init)
     if existing_D != "":
         netD.load_state_dict(torch.load(existing_D))
@@ -229,7 +191,7 @@ def run_nn(dataset, dataroot=None, workers=2, batch_size=64, niter=25, lr=0.0002
             optimizerG.step()
             if i == 1:
                 print(f"Starting Epoch {epoch}...\n")
-            elif i % 100 == 0:
+            elif i % 5 == 0:
                 print(f"[{epoch}/{previous_epoch+niter}] [{i}/{len(dataloader)}]")
             elif i == len(dataloader):
                 print(f'''
@@ -239,9 +201,9 @@ Loss_G: {running_errG/i:.4f}
 D(x): {running_D_x/i:.4f} 
 D(G(z)): {running_D_G_z1/i:.4f}/{running_D_G_z2/i:.4f}
                 ''')
-                vutils.save_image(real_cpu, f"{outf}/real_samples.png", normalize=True)
+                vutils.save_image(real_cpu, f"{outf}/Images/real_samples.png", normalize=True)
                 fake = netG(fixed_noise)
-                vutils.save_image(fake.detach(), f"{outf}/fake_samples_epoch_{epoch}.png", normalize=True)
+                vutils.save_image(fake.detach(), f"{outf}/Images/fake_samples_epoch_{epoch}.png", normalize=True)
             if dry_run:
                 break
     
@@ -250,7 +212,4 @@ D(G(z)): {running_D_G_z1/i:.4f}/{running_D_G_z2/i:.4f}
     torch.save(netD.state_dict(), f"{outf}/netD_epoch_{epoch}.pth")
 
 if __name__ == '__main__':
-    run_nn(dataset="mnist", 
-           dataroot="./StartingWithGANs/data", 
-           outf="./StartingWithGANs/MNIST",
-           cuda=True)
+    run_nn(cuda=False, niter=1)
