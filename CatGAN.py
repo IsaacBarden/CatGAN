@@ -7,7 +7,7 @@ import time
 import re
 import torch
 import torch.nn as nn
-import torch.backends.cudnn as cudnn #Remove if on cpu-only installation
+import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data 
 import torchvision.datasets as dset
@@ -38,22 +38,18 @@ class Generator(nn.Module):
             nn.ConvTranspose2d(            SIZE_Z, G_FEATURE_SIZE * 8, 4, 1, 0, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE * 8),
             nn.ReLU(True),
-            nn.Dropout2d(p=0.5, inplace=True),
             #size: 512 * 4 * 4
             nn.ConvTranspose2d(G_FEATURE_SIZE * 8, G_FEATURE_SIZE * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE * 4),
             nn.ReLU(True),
-            nn.Dropout2d(0.2, True),
             #size: 256 * 8 * 8
             nn.ConvTranspose2d(G_FEATURE_SIZE * 4, G_FEATURE_SIZE * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE * 2),
             nn.ReLU(True),
-            nn.Dropout2d(0.2, True),
             #size: 128 * 16 * 16
             nn.ConvTranspose2d(G_FEATURE_SIZE * 2,     G_FEATURE_SIZE, 4, 2, 1, bias=False),
             nn.BatchNorm2d(G_FEATURE_SIZE),
             nn.ReLU(True),
-            nn.Dropout2d(0.2, True),
             #size: 64 * 32 * 32
             nn.ConvTranspose2d(    G_FEATURE_SIZE,                  3, 8, 4, 2, bias=False),
             nn.Tanh()
@@ -71,22 +67,18 @@ class Discriminator(nn.Module):
             #input is 3 x 128 x 128
             nn.Conv2d(                3,      D_FEATURE_SIZE, 8, 4, 2, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout2d(0.5, True),
             #size: 64 x 32 x 32
             nn.Conv2d(    D_FEATURE_SIZE, D_FEATURE_SIZE * 2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(D_FEATURE_SIZE * 2),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout2d(0.2, True),
             #size: 128 x 16 x 16
             nn.Conv2d(D_FEATURE_SIZE * 2, D_FEATURE_SIZE * 4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(D_FEATURE_SIZE * 4),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout2d(0.2, True),
             #size: 256 x 8 x 8
             nn.Conv2d(D_FEATURE_SIZE * 4, D_FEATURE_SIZE * 8, 4, 2, 1, bias=False),
             nn.BatchNorm2d(D_FEATURE_SIZE * 8),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout2d(0.2, True),
             #size: 512 x 4 x 4
             nn.Conv2d(D_FEATURE_SIZE * 8,                  1, 4, 1, 0, bias=False),
             nn.Sigmoid()
@@ -244,13 +236,13 @@ Time to complete: {run_time:.2f} seconds
         schedulerD.step()
         schedulerG.step()
         if (epoch-1) % 15 == 0:
-            print(f"New lr: {schedulerD.get_last_lr}")
+            print(f"New lr: {schedulerD.get_last_lr()}")
     
     print("Run completed, ending execution")
-    torch.save(netG.state_dict(), f"{outf}/netG_epoch_{epoch}.pth")
-    torch.save(netD.state_dict(), f"{outf}/netD_epoch_{epoch}.pth")
+    #torch.save(netG.state_dict(), f"{outf}/netG_epoch_{epoch}.pth")
+    #torch.save(netD.state_dict(), f"{outf}/netD_epoch_{epoch}.pth")
 
 if __name__ == '__main__':
-    run_nn(cuda=True,
-           niter=60, 
+    run_nn(cuda=False,
+           dry_run=True, 
            lr=0.0005)
