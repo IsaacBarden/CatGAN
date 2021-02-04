@@ -154,8 +154,8 @@ def run_nn(workers=2, batch_size=64, niter=25, lr=0.0002, beta1=0.5,
 
     optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(beta1, 0.999))
     optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(beta1, 0.999))
-    schedulerD = optim.lr_scheduler.StepLR(optimizerD, 15, 0.5)
-    schedulerG = optim.lr_scheduler.StepLR(optimizerG, 15, 0.5)
+    schedulerD = optim.lr_scheduler.StepLR(optimizerD, 30, 0.5)
+    schedulerG = optim.lr_scheduler.StepLR(optimizerG, 30, 0.5)
 
     if dry_run:
         niter = 1
@@ -183,6 +183,17 @@ def run_nn(workers=2, batch_size=64, niter=25, lr=0.0002, beta1=0.5,
             #create a batch of fake images
             fake_images = netG(batch_size_noise)
 
+            D_real_is_real = netD(real_images)
+            D_fake_is_real = netD(fake_images.detach())
+            loss_D_real = criterion(D_real_is_real, batch_size_ones)
+            loss_D_fake = criterion(D_fake_is_real, batch_size_zeroes)
+            loss_D = loss_D_real + loss_D_fake
+
+            #optimize the discriminator
+            optimizerD.zero_grad()
+            loss_D.backward()
+            optimizerD.step()
+
             #get likelihood that fake images are real
             G_fake_is_real = netD(fake_images,)
             Loss_G = criterion(G_fake_is_real, batch_size_ones)
@@ -192,19 +203,7 @@ def run_nn(workers=2, batch_size=64, niter=25, lr=0.0002, beta1=0.5,
             Loss_G.backward()
             optimizerG.step()
 
-            D_real_is_real = netD(real_images)
-            D_fake_is_real = netD(fake_images.detach())
-            loss_D_real = criterion(D_real_is_real, batch_size_ones)
-            loss_D_fake = criterion(D_fake_is_real, batch_size_zeroes)
-
-            #optimize the discriminator
-            optimizerD.zero_grad()
-            loss_D_real.backward()
-            loss_D_fake.backward()
-            optimizerD.step()
-
-            
-
+        
             #Add to running totals of errors
             running_errD += loss_D_real.item() + loss_D_fake.item()
             running_errG += Loss_G.item()
@@ -239,10 +238,12 @@ Time to complete: {run_time:.2f} seconds
             print(f"New lr: {schedulerD.get_last_lr()}")
     
     print("Run completed, ending execution")
-    #torch.save(netG.state_dict(), f"{outf}/netG_epoch_{epoch}.pth")
-    #torch.save(netD.state_dict(), f"{outf}/netD_epoch_{epoch}.pth")
+    torch.save(netG.state_dict(), f"{outf}/netG_epoch_{epoch}.pth")
+    torch.save(netD.state_dict(), f"{outf}/netD_epoch_{epoch}.pth")
 
 if __name__ == '__main__':
-    run_nn(cuda=False,
-           dry_run=True, 
-           lr=0.0005)
+    run_nn(cuda=True,
+           niter=60,
+           existing_D="./CatGAN/Output/netD_epoch_90.pth",
+           existing_G="./CatGAN/Output/netG_epoch_90.pth",
+           lr=0.0001)
